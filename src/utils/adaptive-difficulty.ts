@@ -17,7 +17,7 @@ export interface DailyScore {
 export interface PerformanceHistory {
   dailyScores: DailyScore[];
   skillProfile: SkillProfile;
-  adaptiveLevel: number; // Floating point difficulty level (1.0 - 7.0)
+  adaptiveLevel: number; // Floating point difficulty level (1.0 - 3.0)
 }
 
 // Track proficiency in specific sound challenges
@@ -105,7 +105,7 @@ export function recordDailyPerformance(
   savePerformanceHistory(history);
 }
 
-// Calculate adaptive difficulty level (1.0 - 7.0)
+// Calculate adaptive difficulty level (1.0 - 3.0)
 export function calculateAdaptiveLevel(history: PerformanceHistory): number {
   const scores = history.dailyScores;
   
@@ -137,26 +137,18 @@ export function calculateAdaptiveLevel(history: PerformanceHistory): number {
   
   const weightedAverage = weightSum > 0 ? weightedSum / weightSum : 50;
   
-  // Map performance (0-100) to level (1-7)
-  // 0-30 → Level 1
-  // 30-45 → Level 2
-  // 45-55 → Level 3
-  // 55-65 → Level 4
-  // 65-75 → Level 5
-  // 75-85 → Level 6
-  // 85-100 → Level 7
+  // Map performance (0-100) to level (1-3) - simplified, words only
+  // 0-40 → Level 1 (basic words)
+  // 40-70 → Level 2 (harder words)
+  // 70-100 → Level 3 (two-word pairs)
   
   let level: number;
-  if (weightedAverage < 30) level = 1.0;
-  else if (weightedAverage < 45) level = 1.0 + ((weightedAverage - 30) / 15);
-  else if (weightedAverage < 55) level = 2.0 + ((weightedAverage - 45) / 10);
-  else if (weightedAverage < 65) level = 3.0 + ((weightedAverage - 55) / 10);
-  else if (weightedAverage < 75) level = 4.0 + ((weightedAverage - 65) / 10);
-  else if (weightedAverage < 85) level = 5.0 + ((weightedAverage - 75) / 10);
-  else level = 6.0 + ((weightedAverage - 85) / 15);
+  if (weightedAverage < 40) level = 1.0 + (weightedAverage / 40);
+  else if (weightedAverage < 70) level = 2.0 + ((weightedAverage - 40) / 30);
+  else level = 3.0;
   
-  // Clamp and round to 1 decimal
-  return Math.round(Math.min(7.0, Math.max(1.0, level)) * 10) / 10;
+  // Clamp to 1-3 and round to 1 decimal
+  return Math.round(Math.min(3.0, Math.max(1.0, level)) * 10) / 10;
 }
 
 // Calculate overall performance score for a day (0-100)
@@ -266,7 +258,7 @@ export function generateAdaptiveContent(count: number = 10): PronunciationItem[]
   addItemsFromLevel(result, primaryLevel, currentLevelCount, usedTexts, weakestSkills);
   
   // Add stretch items (one level up)
-  const stretchLevel = Math.min(7, primaryLevel + 1);
+  const stretchLevel = Math.min(3, primaryLevel + 1);
   addItemsFromLevel(result, stretchLevel, stretchCount, usedTexts, weakestSkills);
   
   // Add review items (one level down)
@@ -322,7 +314,7 @@ function addItemsFromLevel(
   usedTexts: Set<string>,
   weakSkills: (keyof SkillProfile)[]
 ): void {
-  const effectiveLevel = Math.min(7, Math.max(1, level)) as keyof typeof ALL_CONTENT;
+  const effectiveLevel = Math.min(3, Math.max(1, level)) as keyof typeof ALL_CONTENT;
   const levelItems = ALL_CONTENT[effectiveLevel] || ALL_CONTENT[1];
   
   // Score items by relevance to weak skills
@@ -348,7 +340,7 @@ function addItemsFromLevel(
   // If not enough items, add random ones from adjacent levels
   if (added < count) {
     const adjacentLevels = [
-      Math.min(7, level + 1),
+      Math.min(3, level + 1),
       Math.max(1, level - 1),
     ] as (keyof typeof ALL_CONTENT)[];
     

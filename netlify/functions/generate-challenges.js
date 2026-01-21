@@ -10,18 +10,13 @@ const SKILL_PROMPTS = {
   finalConsonants: 'Final consonants - often dropped in Vietnamese/Mandarin',
   vowelLength: 'Short vs long vowels (bit/beat, ship/sheep)',
   multiSyllable: 'Multi-syllable word stress and rhythm',
-  sentences: 'Natural sentence flow and connected speech',
 };
 
-// Difficulty descriptions
+// Difficulty descriptions - simplified to just words
 const DIFFICULTY_PROMPTS = {
-  1: 'Very simple single words (1-2 syllables), basic sounds',
-  2: 'Simple words (2-3 syllables) with challenging sounds',
-  3: 'Short 2-3 word phrases',
-  4: 'Medium phrases (4-6 words)',
-  5: 'Simple complete sentences',
-  6: 'Complex sentences with multiple challenging sounds',
-  7: 'Professional/technical sentences with advanced vocabulary',
+  1: 'Simple single words (1-2 syllables)',
+  2: 'Medium words (2-3 syllables) with challenging sounds',
+  3: 'Two-word pairs only (exactly 2 words)',
 };
 
 exports.handler = async (event) => {
@@ -39,33 +34,36 @@ exports.handler = async (event) => {
 
   try {
     const { level, weakSkills, count = 10 } = JSON.parse(event.body);
+    
+    // Cap level at 3 (no sentences)
+    const effectiveLevel = Math.min(Math.max(level || 1, 1), 3);
 
     // Build the prompt
-    const difficultyDesc = DIFFICULTY_PROMPTS[level] || DIFFICULTY_PROMPTS[3];
+    const difficultyDesc = DIFFICULTY_PROMPTS[effectiveLevel] || DIFFICULTY_PROMPTS[1];
     const skillFocus = weakSkills && weakSkills.length > 0
       ? weakSkills.map(s => SKILL_PROMPTS[s] || s).join(', ')
       : 'general American English pronunciation';
 
-    const prompt = `Generate ${count} unique American English pronunciation challenges for a Vietnamese/Mandarin speaker learning English.
+    const prompt = `Generate ${count} unique American English pronunciation challenges for a Vietnamese/Mandarin speaker.
 
-DIFFICULTY LEVEL ${level}/7: ${difficultyDesc}
+DIFFICULTY LEVEL ${effectiveLevel}/3: ${difficultyDesc}
 
 FOCUS ON THESE SOUNDS: ${skillFocus}
 
-REQUIREMENTS:
-- Each item should be natural, commonly used English
-- Avoid obscure words or idioms
-- Include sounds that are challenging for Vietnamese/Mandarin speakers
-- For phrases/sentences, make them practical and conversational
-- Vary the content - don't repeat similar patterns
+STRICT REQUIREMENTS:
+- Level 1-2: ONLY single words (no phrases, no sentences)
+- Level 3: ONLY two-word pairs (exactly 2 words, like "red light" or "very well")
+- NO sentences, NO phrases longer than 2 words
+- Use common, everyday words
+- Include sounds challenging for Vietnamese/Mandarin speakers
 
-OUTPUT FORMAT - Return ONLY a JSON array of objects, no markdown:
+OUTPUT FORMAT - Return ONLY a JSON array, no markdown:
 [
-  {"text": "the phrase or word", "difficulty": ${level}},
+  {"text": "word", "difficulty": ${effectiveLevel}},
   ...
 ]
 
-Generate exactly ${count} items.`;
+Generate exactly ${count} items. Remember: NO sentences, just single words or 2-word pairs.`;
 
     const response = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
@@ -78,7 +76,7 @@ Generate exactly ${count} items.`;
         messages: [
           {
             role: 'system',
-            content: 'You are an expert English pronunciation coach specializing in helping Vietnamese and Mandarin speakers. You generate pronunciation practice content. Always respond with valid JSON only, no markdown formatting.',
+            content: 'You are an English pronunciation coach. Generate ONLY single words or 2-word pairs for practice. NEVER generate sentences or phrases longer than 2 words. Always respond with valid JSON only.',
           },
           {
             role: 'user',
@@ -86,7 +84,7 @@ Generate exactly ${count} items.`;
           },
         ],
         temperature: 0.8,
-        max_tokens: 1000,
+        max_tokens: 800,
       }),
     });
 
@@ -109,10 +107,9 @@ Generate exactly ${count} items.`;
       };
     }
 
-    // Parse the JSON response (handle potential markdown wrapping)
+    // Parse the JSON response
     let challenges;
     try {
-      // Remove markdown code blocks if present
       const cleanContent = content.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
       challenges = JSON.parse(cleanContent);
     } catch (parseError) {
@@ -123,7 +120,6 @@ Generate exactly ${count} items.`;
       };
     }
 
-    // Validate the response
     if (!Array.isArray(challenges)) {
       return {
         statusCode: 500,
@@ -131,20 +127,22 @@ Generate exactly ${count} items.`;
       };
     }
 
-    // Ensure each item has required fields
+    // Filter and validate - ensure no long phrases snuck through
     const validChallenges = challenges
       .filter(c => c && typeof c.text === 'string' && c.text.trim())
       .map(c => ({
         text: c.text.trim(),
-        difficulty: c.difficulty || level,
-        phonetic: '', // OpenAI doesn't generate IPA reliably
-      }));
+        difficulty: Math.min(c.difficulty || effectiveLevel, 3),
+        phonetic: '',
+      }))
+      // Extra safety: filter out anything with more than 2 words
+      .filter(c => c.text.split(/\s+/).length <= 2);
 
     return {
       statusCode: 200,
       headers: {
         'Content-Type': 'application/json',
-        'Cache-Control': 'no-cache', // Don't cache - we want fresh content
+        'Cache-Control': 'no-cache',
       },
       body: JSON.stringify({ challenges: validChallenges }),
     };
@@ -157,4 +155,3 @@ Generate exactly ${count} items.`;
     };
   }
 };
-

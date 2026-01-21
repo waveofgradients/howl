@@ -74,7 +74,7 @@ function getStaticContent(
   weakSkills: (keyof SkillProfile)[],
   count: number
 ): PronunciationItem[] {
-  const effectiveLevel = Math.min(7, Math.max(1, Math.round(level))) as keyof typeof ALL_CONTENT;
+  const effectiveLevel = Math.min(3, Math.max(1, Math.round(level))) as keyof typeof ALL_CONTENT;
   const items = ALL_CONTENT[effectiveLevel] || ALL_CONTENT[1];
   
   // Score items by relevance to weak skills
