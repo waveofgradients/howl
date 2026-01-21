@@ -166,27 +166,6 @@ export default function App() {
       return;
     }
     
-    // Request microphone permission first (needed for iOS Safari)
-    try {
-      
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      
-      // Stop the stream immediately - we just needed permission
-      stream.getTracks().forEach(track => track.stop());
-    } catch (err: unknown) {
-      const error = err as Error & { name?: string };
-      console.error('Mic permission error:', error.name, error.message);
-      
-      if (error.name === 'NotAllowedError' || error.name === 'PermissionDeniedError') {
-        setError('Mic blocked. Tap ⓘ in address bar → Website Settings → Microphone → Allow');
-      } else if (error.name === 'NotFoundError') {
-        setError('No microphone found on this device.');
-      } else {
-        setError(`Mic error: ${error.message || 'unknown'}`);
-      }
-      return;
-    }
-    
     if (advanceTimeoutRef.current) {
       clearTimeout(advanceTimeoutRef.current);
     }
@@ -273,12 +252,22 @@ export default function App() {
         }
       }
       
-    } catch (err) {
-      console.error('Recognition error:', err);
+    } catch (err: unknown) {
       setIsRecording(false);
       playStopRecord();
-      const errorMessage = err instanceof Error ? err.message : 'Could not recognize speech. Try again.';
-      setError(errorMessage);
+      
+      const error = err as Error & { name?: string };
+      
+      // Handle specific error types
+      if (error.name === 'NotAllowedError' || error.message?.includes('not-allowed')) {
+        setError('Mic blocked. Go to Settings → Safari → Microphone → Allow');
+      } else if (error.message?.includes('no-speech')) {
+        setError('No speech detected. Tap mic and speak clearly.');
+      } else if (error.message?.includes('network')) {
+        setError('Network error. Check your connection.');
+      } else {
+        setError(error.message || 'Could not recognize speech. Try again.');
+      }
     }
   }, [currentText, isRecording, handleFirstInteraction, loadNextItem]);
   
