@@ -91,10 +91,8 @@ export default function App() {
   const [challengeComplete, setChallengeComplete] = useState(false);
   const [isTransitioning, setIsTransitioning] = useState(false);
   const [displayedProgress, setDisplayedProgress] = useState(0);
-  const [autoListenMode, setAutoListenMode] = useState(false);
   
   const advanceTimeoutRef = useRef<ReturnType<typeof setTimeout>>();
-  const autoListenRef = useRef(false);
   
   // Initialize daily challenge and load first item
   useEffect(() => {
@@ -157,10 +155,29 @@ export default function App() {
     }
   }, [currentText, isPlaying, handleFirstInteraction]);
   
-  // Process a single recognition attempt
-  const processRecognition = useCallback(async (): Promise<boolean> => {
+  // Handle recording - tap to record
+  const handleRecord = useCallback(async () => {
+    if (!currentText || isRecording) return;
+    
+    await handleFirstInteraction();
+    
+    if (!isSpeechRecognitionAvailable()) {
+      setError(getSpeechRecognitionError());
+      return;
+    }
+    
+    if (advanceTimeoutRef.current) {
+      clearTimeout(advanceTimeoutRef.current);
+    }
+    
+    setIsRecording(true);
+    setFeedback('');
+    playStartRecord();
+    
     try {
       const result = await startListening();
+      playStopRecord();
+      setIsRecording(false);
       
       const score = scorePronunciation(currentText, result.transcript, result.confidence);
       const rating = getRating(score);
@@ -186,19 +203,16 @@ export default function App() {
         setCheckersExploding(true);
         
         if (complete) {
-          setAutoListenMode(false);
-          autoListenRef.current = false;
           setIsTransitioning(true);
           playLevelUp();
-          setTimeout(() => {
+          advanceTimeoutRef.current = setTimeout(() => {
             setShowExplosion(false);
             setCheckersExploding(false);
             setChallengeComplete(true);
           }, 1000);
-          return false; // Stop auto-listen
         } else if (shouldAdvance) {
           loadNextItem();
-          setTimeout(() => {
+          advanceTimeoutRef.current = setTimeout(() => {
             setShowExplosion(false);
             setCheckersExploding(false);
           }, 600);
@@ -206,106 +220,43 @@ export default function App() {
       } else if (isGoodOrPerfect) {
         playSuccess();
         if (complete) {
-          setAutoListenMode(false);
-          autoListenRef.current = false;
-          setTimeout(() => {
+          advanceTimeoutRef.current = setTimeout(() => {
             setIsTransitioning(true);
             playLevelUp();
             setTimeout(() => setChallengeComplete(true), 1000);
-          }, 400);
-          return false;
+          }, 500);
         } else if (shouldAdvance) {
-          setTimeout(() => loadNextItem(), 300);
+          advanceTimeoutRef.current = setTimeout(() => loadNextItem(), 400);
         }
       } else if (rating === 'ok') {
         playPartial();
         if (shouldAdvance) {
-          setTimeout(() => loadNextItem(), 400);
+          advanceTimeoutRef.current = setTimeout(() => loadNextItem(), 500);
         }
       } else {
         playError();
         if (shouldAdvance) {
-          setTimeout(() => loadNextItem(), 400);
+          advanceTimeoutRef.current = setTimeout(() => loadNextItem(), 500);
         }
       }
       
-      return true; // Continue auto-listen
-      
     } catch (err: unknown) {
-      const error = err as Error & { name?: string };
-      
-      // Don't show error for no-speech in auto mode, just keep listening
-      if (error.message === 'no-speech' && autoListenRef.current) {
-        return true; // Keep listening
-      }
-      
-      if (error.name === 'NotAllowedError' || error.message?.includes('not-allowed')) {
-        setError('Mic blocked. Allow mic access in settings.');
-        return false;
-      } else if (error.message === 'no-speech') {
-        // Show error only if not in auto mode
-        setError('Speak into the mic');
-      } else if (error.message?.includes('network')) {
-        setError('Network error');
-        return false;
-      }
-      
-      return true; // Keep listening on minor errors
-    }
-  }, [currentText, loadNextItem]);
-  
-  // Auto-listen loop
-  const runAutoListen = useCallback(async () => {
-    while (autoListenRef.current && !challengeComplete) {
-      setIsRecording(true);
-      const shouldContinue = await processRecognition();
-      setIsRecording(false);
-      
-      if (!shouldContinue || !autoListenRef.current) {
-        break;
-      }
-      
-      // Brief pause between listens
-      await new Promise(r => setTimeout(r, 200));
-    }
-    
-    setIsRecording(false);
-    setAutoListenMode(false);
-    autoListenRef.current = false;
-  }, [processRecognition, challengeComplete]);
-  
-  // Handle mic button tap - toggle auto-listen mode
-  const handleRecord = useCallback(async () => {
-    if (!currentText) return;
-    
-    await handleFirstInteraction();
-    
-    if (!isSpeechRecognitionAvailable()) {
-      setError(getSpeechRecognitionError());
-      return;
-    }
-    
-    // If already in auto-listen mode, stop it (mute)
-    if (autoListenMode || autoListenRef.current) {
-      autoListenRef.current = false;
-      setAutoListenMode(false);
       setIsRecording(false);
       playStopRecord();
-      return;
+      
+      const error = err as Error & { name?: string };
+      
+      if (error.name === 'NotAllowedError' || error.message?.includes('not-allowed')) {
+        setError('Mic blocked. Allow mic in settings.');
+      } else if (error.message === 'no-speech') {
+        setError('No speech heard. Try again.');
+      } else if (error.message?.includes('network')) {
+        setError('Network error.');
+      } else {
+        setError('Try again.');
+      }
     }
-    
-    // Start auto-listen mode
-    if (advanceTimeoutRef.current) {
-      clearTimeout(advanceTimeoutRef.current);
-    }
-    
-    setFeedback('');
-    autoListenRef.current = true;
-    setAutoListenMode(true);
-    playStartRecord();
-    
-    runAutoListen();
-  }, [currentText, autoListenMode, handleFirstInteraction, runAutoListen]);
+  }, [currentText, isRecording, handleFirstInteraction, loadNextItem]);
   
   // Animate progress counter when transitioning or complete
   useEffect(() => {
@@ -612,27 +563,26 @@ export default function App() {
               pointerEvents: isTransitioning ? 'none' : 'auto',
             }}
           >
-            {/* Mic button - tap to start auto-listen, tap again to mute */}
+            {/* Mic button - tap to record */}
             <button
               onClick={handleRecord}
+              disabled={isRecording}
               className={`
                 flex-1 rounded-[20px] border-2 
                 flex items-center justify-center
                 transition-all duration-200
-                ${autoListenMode ? 'scale-[1.02]' : 'hover:scale-[1.02] active:scale-95'}
+                ${isRecording ? 'scale-[1.02]' : 'hover:scale-[1.02] active:scale-95'}
               `}
               style={{ 
                 height: responsiveStyles.buttonHeight,
                 borderColor: theme.accent,
-                backgroundColor: autoListenMode ? theme.accent : 'transparent',
+                backgroundColor: isRecording ? theme.accent : 'transparent',
               }}
-              aria-label={autoListenMode ? 'Tap to mute' : 'Tap to start listening'}
+              aria-label={isRecording ? 'Recording...' : 'Tap to speak'}
             >
-              {autoListenMode ? (
-                // Show audio bars when in auto-listen mode
+              {isRecording ? (
                 <AudioBars isActive={isRecording} color={theme.background} />
               ) : (
-                // Show mic icon when idle
                 <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke={theme.accent} strokeWidth="2">
                   <rect x="9" y="3" width="6" height="11" rx="3" />
                   <path d="M5 11a7 7 0 0 0 14 0" />
