@@ -46,49 +46,38 @@ export interface RecognitionResult {
   confidence: number;
 }
 
-// Check availability - on iOS Safari, webkitSpeechRecognition exists
-export function isSpeechRecognitionAvailable(): boolean {
-  // Check for standard or webkit-prefixed API
-  const hasAPI = 'SpeechRecognition' in window || 'webkitSpeechRecognition' in window;
-  
-  // On iOS, Chrome and other browsers use WKWebView which doesn't support speech recognition
-  // Only Safari has actual support
-  if (isIOS() && !isSafari()) {
-    return false;
-  }
-  
-  return hasAPI;
-}
-
 // Check if on iOS
-export function isIOS(): boolean {
+function isIOS(): boolean {
   return /iPad|iPhone|iPod/.test(navigator.userAgent) || 
-    (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1); // iPad with iPadOS
+    (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 }
 
-// Check if Safari (not Chrome/Firefox on iOS)
-export function isSafari(): boolean {
+// Check if Safari
+function isSafari(): boolean {
   const ua = navigator.userAgent;
-  // Safari on iOS: has Safari in UA but NOT CriOS (Chrome) or FxiOS (Firefox)
   return /Safari/.test(ua) && !/CriOS/.test(ua) && !/FxiOS/.test(ua) && !/Chrome/.test(ua);
 }
 
-// Get helpful error message for speech recognition
-export function getSpeechRecognitionError(): string {
-  if (isIOS() && !isSafari()) {
-    return 'On iPhone, open in Safari for voice recognition.';
-  }
-  if (isIOS()) {
-    return 'Tap the mic button and allow microphone access.';
-  }
-  return 'Use Chrome on Android or Safari on iPhone.';
+// Check availability
+export function isSpeechRecognitionAvailable(): boolean {
+  const hasAPI = 'SpeechRecognition' in window || 'webkitSpeechRecognition' in window;
+  if (isIOS() && !isSafari()) return false;
+  return hasAPI;
 }
 
-// Start listening
+// Get helpful error message
+export function getSpeechRecognitionError(): string {
+  if (isIOS() && !isSafari()) {
+    return 'Open in Safari for voice recognition.';
+  }
+  return 'Use Chrome or Safari.';
+}
+
+// Start listening - FAST timeout
 export function startListening(): Promise<RecognitionResult> {
   return new Promise((resolve, reject) => {
     if (!isSpeechRecognitionAvailable()) {
-      reject(new Error('Speech recognition not supported. Use Chrome or Safari.'));
+      reject(new Error('Speech recognition not supported.'));
       return;
     }
 
@@ -110,7 +99,7 @@ export function startListening(): Promise<RecognitionResult> {
       recognition.onend = null;
     };
 
-    // 5 second timeout (faster response)
+    // 3 second timeout - FAST
     timeoutId = setTimeout(() => {
       if (!resolved) {
         resolved = true;
@@ -118,11 +107,7 @@ export function startListening(): Promise<RecognitionResult> {
         recognition.abort();
         reject(new Error('no-speech'));
       }
-    }, 5000);
-
-    recognition.onstart = () => {
-      
-    };
+    }, 3000);
 
     recognition.onresult = (event: SpeechRecognitionEvent) => {
       if (resolved) return;
@@ -131,11 +116,12 @@ export function startListening(): Promise<RecognitionResult> {
 
       const result = event.results[0];
       if (result && result[0]) {
-        const { transcript, confidence } = result[0];
-        
-        resolve({ transcript, confidence });
+        resolve({ 
+          transcript: result[0].transcript, 
+          confidence: result[0].confidence 
+        });
       } else {
-        reject(new Error('Could not understand. Try again.'));
+        reject(new Error('Could not understand.'));
       }
     };
 
@@ -143,166 +129,84 @@ export function startListening(): Promise<RecognitionResult> {
       if (resolved) return;
       resolved = true;
       cleanup();
-
-      console.error('Speech error:', event.error);
-      
-      const messages: Record<string, string> = {
-        'no-speech': 'No speech detected. Speak into the mic.',
-        'audio-capture': 'No microphone found.',
-        'not-allowed': 'Microphone blocked. Allow mic access in browser settings.',
-        'network': 'Network error. Check your connection.',
-        'aborted': 'Cancelled.',
-      };
-      
-      reject(new Error(messages[event.error] || `Error: ${event.error}`));
+      reject(new Error(event.error));
     };
 
     recognition.onend = () => {
       if (!resolved) {
         resolved = true;
         cleanup();
-        reject(new Error('No speech detected. Tap and speak clearly.'));
+        reject(new Error('no-speech'));
       }
     };
 
     try {
       recognition.start();
-    } catch (err) {
+    } catch {
       resolved = true;
       cleanup();
-      reject(new Error('Failed to start mic. Refresh the page.'));
+      reject(new Error('Failed to start mic.'));
     }
   });
 }
 
-import { compareWordsPhonetically } from './phonetics';
-
-// Levenshtein distance for character-level comparison
-function levenshtein(a: string, b: string): number {
-  const m = a.length, n = b.length;
-  const dp: number[][] = Array(m + 1).fill(null).map(() => Array(n + 1).fill(0));
+// Fast string similarity
+function similarity(a: string, b: string): number {
+  if (a === b) return 1;
+  if (!a || !b) return 0;
   
-  for (let i = 0; i <= m; i++) dp[i][0] = i;
-  for (let j = 0; j <= n; j++) dp[0][j] = j;
+  const longer = a.length > b.length ? a : b;
+  const shorter = a.length > b.length ? b : a;
   
-  for (let i = 1; i <= m; i++) {
-    for (let j = 1; j <= n; j++) {
-      dp[i][j] = a[i-1] === b[j-1] 
-        ? dp[i-1][j-1] 
-        : Math.min(dp[i-1][j-1], dp[i-1][j], dp[i][j-1]) + 1;
+  if (longer.length === 0) return 1;
+  
+  let matches = 0;
+  const chars = longer.split('');
+  
+  for (const char of shorter) {
+    const idx = chars.indexOf(char);
+    if (idx !== -1) {
+      matches++;
+      chars.splice(idx, 1);
     }
   }
-  return dp[m][n];
+  
+  return matches / longer.length;
 }
 
-// Sophisticated pronunciation scoring
-// Uses: phonetic matching, character similarity, word coverage, and confidence
+// Fast pronunciation scoring
 export function scorePronunciation(expected: string, spoken: string, confidence: number = 0.9): number {
   const norm = (s: string) => s.toLowerCase().trim().replace(/[^\w\s]/g, '').replace(/\s+/g, ' ');
   
   const exp = norm(expected);
   const spk = norm(spoken);
 
-  
-  
-  
-  
+  if (exp === spk) return 100;
+  if (!spk) return 0;
 
-  // Perfect match
-  if (exp === spk) {
-    
-    return 100;
-  }
-
-  const expWords = exp.split(' ');
-  const spkWords = spk.split(' ');
-
-  // 1. PHONETIC WORD MATCHING (40%)
-  // For each expected word, find best phonetic match in spoken words
-  let phoneticScore = 0;
-  const matchedSpoken = new Set<number>();
+  const sim = similarity(exp, spk);
+  const score = (sim * 0.8 + confidence * 0.2) * 100;
   
-  for (const expWord of expWords) {
-    let bestMatch = { index: -1, score: 0 };
-    
-    for (let i = 0; i < spkWords.length; i++) {
-      if (matchedSpoken.has(i)) continue;
-      
-      // Exact match
-      if (expWord === spkWords[i]) {
-        bestMatch = { index: i, score: 1 };
-        break;
-      }
-      
-      // Phonetic match
-      const phonScore = compareWordsPhonetically(expWord, spkWords[i]);
-      if (phonScore > bestMatch.score) {
-        bestMatch = { index: i, score: phonScore };
-      }
-    }
-    
-    if (bestMatch.index >= 0 && bestMatch.score > 0.5) {
-      matchedSpoken.add(bestMatch.index);
-      phoneticScore += bestMatch.score;
-      
-    } else {
-      
-    }
-  }
+  // Generous for close matches
+  if (sim > 0.85) return Math.min(100, Math.round(score * 1.15));
+  if (sim > 0.7) return Math.min(100, Math.round(score * 1.05));
   
-  phoneticScore = phoneticScore / expWords.length;
-
-  // 2. CHARACTER SIMILARITY (30%)
-  // Catches overall string similarity
-  const dist = levenshtein(exp, spk);
-  const charScore = 1 - dist / Math.max(exp.length, spk.length, 1);
-
-  // 3. WORD COVERAGE (20%)
-  // Penalize missing or extra words
-  const coverageScore = Math.min(
-    matchedSpoken.size / expWords.length, // How many expected words were matched
-    expWords.length / Math.max(spkWords.length, 1) // Penalize too many extra words
-  );
-
-  // 4. CONFIDENCE BOOST (10%)
-  // Browser's confidence in what it heard
-  const confidenceScore = confidence;
-
-  // Weighted combination
-  const rawScore = (
-    phoneticScore * 0.40 +
-    charScore * 0.30 +
-    coverageScore * 0.20 +
-    confidenceScore * 0.10
-  ) * 100;
-
-  const finalScore = Math.min(100, Math.max(0, Math.round(rawScore)));
-  
-  
-  
-  
-  
-  
-  
-
-  return finalScore;
+  return Math.min(100, Math.max(0, Math.round(score)));
 }
 
 // Rating levels
 export type Rating = 'perfect' | 'good' | 'ok' | 'bad';
 
-// Get rating from score
 export function getRating(score: number): Rating {
-  if (score >= 95) return 'perfect';
-  if (score >= 70) return 'good';
+  if (score >= 90) return 'perfect';
+  if (score >= 65) return 'good';
   if (score >= 40) return 'ok';
   return 'bad';
 }
 
-// Get display feedback text
 export function getFeedback(score: number): string {
-  if (score >= 95) return 'YOOOO';
-  if (score >= 70) return 'GOOOOD';
+  if (score >= 90) return 'YOOOO';
+  if (score >= 65) return 'GOOOOD';
   if (score >= 40) return 'OKKKK';
   return 'NOOOO';
 }
