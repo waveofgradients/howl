@@ -564,49 +564,81 @@ export default function App() {
               />
             </svg>
             
-            {/* Center content - feedback, combo, or percentage */}
-            <div className="absolute inset-0 flex flex-col items-center justify-center gap-1">
-              {/* Combo indicator */}
-              {comboStreak >= 2 && !isTransitioning && (
-                <span 
-                  className="font-bricolage font-bold text-xs animate-pulse"
-                  style={{ color: theme.accent, opacity: 0.8 }}
-                >
-                  {comboStreak}x COMBO
-                </span>
-              )}
-              
-              {/* Recovery mode indicator */}
-              {isRecovery && !isTransitioning && (
-                <span 
-                  className="font-bricolage font-bold text-xs"
-                  style={{ color: theme.accent, opacity: 0.8 }}
-                >
-                  RETRY!
-                </span>
-              )}
-              
-              {/* Main feedback text */}
-              <span 
-                className="font-bricolage font-bold tracking-tight text-center transition-all duration-500"
-                style={{ 
-                  color: theme.accent,
-                  fontSize: isTransitioning ? 'clamp(24px, 6vw, 32px)' : 'clamp(16px, 4vw, 20px)',
-                }}
-              >
-                {isTransitioning ? `${Math.round(displayedProgress)}%` : feedback}
-              </span>
-              
-              {/* Score change indicator */}
-              {scoreChange !== null && !isTransitioning && (
-                <span 
-                  className="font-bricolage font-bold text-sm animate-bounce"
-                  style={{ 
-                    color: scoreChange > 0 ? theme.accent : '#ff6b6b',
-                  }}
-                >
-                  {scoreChange > 0 ? `+${scoreChange}` : scoreChange}
-                </span>
+            {/* Center content - score change, feedback, combo, or percentage */}
+            <div className="absolute inset-0 flex flex-col items-center justify-center" style={{ gap: 0 }}>
+              {/* Score change indicator - prominent style like completion screen */}
+              {scoreChange !== null && !isTransitioning ? (
+                <>
+                  <span 
+                    className="font-bricolage font-bold animate-bounce-in"
+                    style={{ 
+                      color: scoreChange > 0 ? theme.accent : '#ff6b6b',
+                      letterSpacing: '-0.022em',
+                      fontSize: 'clamp(28px, 7vw, 36px)',
+                      lineHeight: 1.1,
+                    }}
+                  >
+                    {scoreChange > 0 ? `+${scoreChange}` : scoreChange}
+                  </span>
+                  {/* Combo multiplier under score */}
+                  {comboStreak >= 2 && (
+                    <span 
+                      className="font-bricolage font-bold"
+                      style={{ 
+                        color: theme.accent, 
+                        letterSpacing: '-0.022em',
+                        fontSize: 'clamp(12px, 3vw, 16px)',
+                        opacity: 0.8,
+                      }}
+                    >
+                      {comboStreak}x combo
+                    </span>
+                  )}
+                </>
+              ) : (
+                <>
+                  {/* Recovery mode indicator */}
+                  {isRecovery && !isTransitioning && (
+                    <span 
+                      className="font-bricolage font-bold"
+                      style={{ 
+                        color: '#ff6b6b', 
+                        letterSpacing: '-0.022em',
+                        fontSize: 'clamp(14px, 3.5vw, 18px)',
+                      }}
+                    >
+                      retry!
+                    </span>
+                  )}
+                  
+                  {/* Main feedback text or percentage */}
+                  <span 
+                    className="font-bricolage font-bold text-center transition-all duration-500"
+                    style={{ 
+                      color: theme.accent,
+                      letterSpacing: '-0.022em',
+                      fontSize: isTransitioning ? 'clamp(24px, 6vw, 32px)' : 'clamp(16px, 4vw, 20px)',
+                      lineHeight: 1.1,
+                    }}
+                  >
+                    {isTransitioning ? `${Math.round(displayedProgress)}%` : feedback}
+                  </span>
+                  
+                  {/* Combo indicator when not showing score change */}
+                  {comboStreak >= 2 && !isTransitioning && !isRecovery && feedback && (
+                    <span 
+                      className="font-bricolage font-bold"
+                      style={{ 
+                        color: theme.accent, 
+                        letterSpacing: '-0.022em',
+                        fontSize: 'clamp(10px, 2.5vw, 12px)',
+                        opacity: 0.7,
+                      }}
+                    >
+                      {comboStreak}x combo
+                    </span>
+                  )}
+                </>
               )}
             </div>
           </div>
