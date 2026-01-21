@@ -2,12 +2,12 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { CheckeredPattern } from './components/CheckeredPattern';
 import { ParticleExplosion } from './components/ParticleExplosion';
 import { AudioBars } from './components/AudioBars';
-import { getItemsForLevel } from '@/data/words';
 import { 
   getProgress, 
   getDailyChallenge, 
   recordAttempt, 
   getDailyProgress,
+  getAllTimeProgress,
   type UserProgress 
 } from '@/utils/storage';
 import { playTextToSpeech, prefetchAudio } from '@/utils/elevenlabs';
@@ -97,21 +97,19 @@ export default function App() {
   
   // Initialize daily challenge and load first item
   useEffect(() => {
-    const prog = getProgress();
-    const items = getItemsForLevel(prog.currentLevel);
-    const allTexts = items.map(i => i.text);
-    
-    const challenge = getDailyChallenge(allTexts, prog.currentLevel);
+    // Get adaptive daily challenge - automatically adjusts difficulty based on history
+    const challenge = getDailyChallenge();
     
     if (challenge.currentIndex >= challenge.items.length) {
       setChallengeComplete(true);
       return;
     }
     
-    const text = challenge.items[challenge.currentIndex];
-    setCurrentText(text);
+    const item = challenge.items[challenge.currentIndex];
+    setCurrentText(item.text);
+    setProgress(getProgress());
     setDailyProgress(getDailyProgress());
-    prefetchAudio(text).catch(console.error);
+    prefetchAudio(item.text).catch(() => {});
   }, []);
   
   // Load next item
@@ -124,11 +122,11 @@ export default function App() {
       return;
     }
     
-    const text = challenge.items[challenge.currentIndex];
-    setCurrentText(text);
+    const item = challenge.items[challenge.currentIndex];
+    setCurrentText(item.text);
     setFeedback('');
     setDailyProgress(getDailyProgress());
-    prefetchAudio(text).catch(console.error);
+    prefetchAudio(item.text).catch(() => {});
   }, []);
   
   // Initialize audio on first interaction
@@ -227,7 +225,8 @@ export default function App() {
       
       const { shouldAdvance, challengeComplete: complete, progress: newProgress } = recordAttempt(
         isGoodOrPerfect,
-        isPerfectScore
+        isPerfectScore,
+        score
       );
       
       setProgress(newProgress);
@@ -304,10 +303,8 @@ export default function App() {
   if (challengeComplete || isTransitioning) {
     // Get the rating to display
     const completionRating = dailyProgress >= 0.8 ? 'gooood' : dailyProgress >= 0.5 ? 'okkkkk' : 'done';
-    // Calculate all-time average (simplified - use total perfect / total attempts as proxy)
-    const allTimeProgress = progress.totalPerfect > 0 
-      ? Math.min(100, (progress.totalPerfect / Math.max(progress.currentDay * 5, 1)) * 100)
-      : 0;
+    // Get adaptive all-time progress (based on historical performance)
+    const allTimeProgress = getAllTimeProgress();
     
     return (
       <div 

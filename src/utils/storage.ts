@@ -1,11 +1,22 @@
 // Local storage for progress tracking
 
+import { PronunciationItem } from '@/data/words';
+import { 
+  recordDailyPerformance, 
+  updateSkillProfile, 
+  generateAdaptiveContent,
+  getAdaptiveLevel,
+  resetPerformanceHistory
+} from './adaptive-difficulty';
+
 export interface DailyChallenge {
   date: string;
-  items: string[]; // The items for today
+  items: PronunciationItem[]; // Full items with metadata
   completed: number; // How many completed successfully (good or perfect)
   currentIndex: number; // Current item index
   attempts: number; // Attempts on current item
+  scores: number[]; // Score for each attempt (for calculating average)
+  perfectCount: number; // Number of perfect scores
 }
 
 export interface UserProgress {
@@ -16,6 +27,8 @@ export interface UserProgress {
   totalCompleted: number;
   lastPlayedDate: string;
   dailyChallenge: DailyChallenge | null;
+  allTimeScore: number; // Running all-time average
+  allTimeAttempts: number; // Total attempts ever
 }
 
 const STORAGE_KEY = 'howl_progress';
@@ -29,13 +42,19 @@ const defaultProgress: UserProgress = {
   totalCompleted: 0,
   lastPlayedDate: '',
   dailyChallenge: null,
+  allTimeScore: 0,
+  allTimeAttempts: 0,
 };
 
 export function getProgress(): UserProgress {
   try {
     const stored = localStorage.getItem(STORAGE_KEY);
     if (!stored) return { ...defaultProgress };
-    return JSON.parse(stored) as UserProgress;
+    const progress = JSON.parse(stored) as UserProgress;
+    // Ensure new fields exist
+    if (progress.allTimeScore === undefined) progress.allTimeScore = 0;
+    if (progress.allTimeAttempts === undefined) progress.allTimeAttempts = 0;
+    return progress;
   } catch {
     return { ...defaultProgress };
   }
@@ -44,8 +63,8 @@ export function getProgress(): UserProgress {
 export function saveProgress(progress: UserProgress): void {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(progress));
-  } catch (error) {
-    console.error('Error saving progress:', error);
+  } catch {
+    // Storage error - ignore
   }
 }
 
@@ -54,8 +73,8 @@ function getTodayString(): string {
   return new Date().toDateString();
 }
 
-// Initialize or get daily challenge
-export function getDailyChallenge(allItems: string[], _level: number): DailyChallenge {
+// Initialize or get daily challenge using adaptive content
+export function getDailyChallenge(): DailyChallenge {
   const progress = getProgress();
   const today = getTodayString();
   
@@ -64,10 +83,24 @@ export function getDailyChallenge(allItems: string[], _level: number): DailyChal
     return progress.dailyChallenge;
   }
   
-  // Create new daily challenge
-  // Shuffle and pick items based on level
-  const shuffled = [...allItems].sort(() => Math.random() - 0.5);
-  const items = shuffled.slice(0, DAILY_CHALLENGE_SIZE);
+  // Record yesterday's performance if there was a challenge
+  if (progress.dailyChallenge) {
+    const lastChallenge = progress.dailyChallenge;
+    const avgScore = lastChallenge.scores.length > 0
+      ? lastChallenge.scores.reduce((a, b) => a + b, 0) / lastChallenge.scores.length
+      : 0;
+    
+    recordDailyPerformance(
+      lastChallenge.completed,
+      lastChallenge.items.length,
+      lastChallenge.perfectCount,
+      avgScore,
+      progress.currentLevel
+    );
+  }
+  
+  // Generate adaptive content based on performance history
+  const items = generateAdaptiveContent(DAILY_CHALLENGE_SIZE);
   
   const newChallenge: DailyChallenge = {
     date: today,
@@ -75,6 +108,8 @@ export function getDailyChallenge(allItems: string[], _level: number): DailyChal
     completed: 0,
     currentIndex: 0,
     attempts: 0,
+    scores: [],
+    perfectCount: 0,
   };
   
   // Update streak
@@ -88,6 +123,9 @@ export function getDailyChallenge(allItems: string[], _level: number): DailyChal
     }
   }
   
+  // Update level from adaptive system
+  progress.currentLevel = Math.round(getAdaptiveLevel());
+  
   progress.dailyChallenge = newChallenge;
   progress.lastPlayedDate = today;
   progress.currentDay++;
@@ -96,10 +134,11 @@ export function getDailyChallenge(allItems: string[], _level: number): DailyChal
   return newChallenge;
 }
 
-// Record attempt result
+// Record attempt result with score
 export function recordAttempt(
   isGoodOrPerfect: boolean, 
-  isPerfect: boolean
+  isPerfect: boolean,
+  score: number = 0
 ): { 
   shouldAdvance: boolean; 
   challengeComplete: boolean;
@@ -113,6 +152,20 @@ export function recordAttempt(
   }
   
   challenge.attempts++;
+  challenge.scores.push(score);
+  
+  // Update all-time running average
+  progress.allTimeAttempts++;
+  progress.allTimeScore = (
+    (progress.allTimeScore * (progress.allTimeAttempts - 1) + score) / 
+    progress.allTimeAttempts
+  );
+  
+  // Update skill profile for the current item
+  const currentItem = challenge.items[challenge.currentIndex];
+  if (currentItem) {
+    updateSkillProfile(currentItem, score);
+  }
   
   let shouldAdvance = false;
   
@@ -120,6 +173,7 @@ export function recordAttempt(
     // Perfect - advance immediately
     shouldAdvance = true;
     challenge.completed++;
+    challenge.perfectCount++;
     progress.totalPerfect++;
     progress.totalCompleted++;
     progress.streak++;
@@ -140,11 +194,22 @@ export function recordAttempt(
   
   const challengeComplete = challenge.currentIndex >= challenge.items.length;
   
-  // Level up every 3 days if doing well
-  if (challengeComplete && challenge.completed >= 7 && progress.currentLevel < 7) {
-    if (progress.currentDay % 3 === 0) {
-      progress.currentLevel++;
-    }
+  // If challenge complete, record to performance history
+  if (challengeComplete) {
+    const avgScore = challenge.scores.length > 0
+      ? challenge.scores.reduce((a, b) => a + b, 0) / challenge.scores.length
+      : 0;
+    
+    recordDailyPerformance(
+      challenge.completed,
+      challenge.items.length,
+      challenge.perfectCount,
+      avgScore,
+      progress.currentLevel
+    );
+    
+    // Update level from adaptive system
+    progress.currentLevel = Math.round(getAdaptiveLevel());
   }
   
   progress.dailyChallenge = challenge;
@@ -154,7 +219,7 @@ export function recordAttempt(
 }
 
 // Get current item from daily challenge
-export function getCurrentChallengeItem(): string | null {
+export function getCurrentChallengeItem(): PronunciationItem | null {
   const progress = getProgress();
   const challenge = progress.dailyChallenge;
   
@@ -163,6 +228,12 @@ export function getCurrentChallengeItem(): string | null {
   }
   
   return challenge.items[challenge.currentIndex];
+}
+
+// Get current item text (for backwards compatibility)
+export function getCurrentChallengeText(): string | null {
+  const item = getCurrentChallengeItem();
+  return item ? item.text : null;
 }
 
 // Get daily progress (0-1)
@@ -175,8 +246,14 @@ export function getDailyProgress(): number {
   return challenge.completed / challenge.items.length;
 }
 
+// Get all-time progress as percentage (0-100)
+export function getAllTimeProgress(): number {
+  const progress = getProgress();
+  return Math.round(progress.allTimeScore);
+}
+
 // Reset progress (for testing)
 export function resetProgress(): void {
   localStorage.removeItem(STORAGE_KEY);
+  resetPerformanceHistory();
 }
-
