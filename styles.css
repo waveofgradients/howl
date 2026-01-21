@@ -1,0 +1,559 @@
+/* CSS Variables for themes */
+:root {
+    --transition-speed: 0.3s;
+}
+
+/* Theme 1: Blue + Lime */
+.theme-blue {
+    --bg-color: #2B4A78;
+    --accent-color: #C5E165;
+    --accent-dim: rgba(197, 225, 101, 0.3);
+    --text-color: #C5E165;
+    --text-dim: rgba(197, 225, 101, 0.6);
+}
+
+/* Theme 2: Forest Green + Cream */
+.theme-green {
+    --bg-color: #3D7A4A;
+    --accent-color: #E8D5A3;
+    --accent-dim: rgba(232, 213, 163, 0.3);
+    --text-color: #E8D5A3;
+    --text-dim: rgba(232, 213, 163, 0.6);
+}
+
+/* Theme 3: Brown/Maroon + Mint */
+.theme-brown {
+    --bg-color: #5D2E2A;
+    --accent-color: #7EECD4;
+    --accent-dim: rgba(126, 236, 212, 0.3);
+    --text-color: #7EECD4;
+    --text-dim: rgba(126, 236, 212, 0.6);
+}
+
+/* Reset and base */
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+html, body {
+    height: 100%;
+    overflow: hidden;
+    touch-action: manipulation;
+}
+
+body {
+    font-family: 'DM Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+}
+
+#app {
+    min-height: 100vh;
+    min-height: -webkit-fill-available;
+    background-color: var(--bg-color);
+    display: flex;
+    flex-direction: column;
+    position: relative;
+    overflow: hidden;
+    transition: background-color 0.5s ease;
+}
+
+/* Checker patterns */
+.checker-container {
+    position: absolute;
+    left: 0;
+    right: 0;
+    height: 120px;
+    overflow: hidden;
+    z-index: 1;
+}
+
+.checker-top {
+    top: 0;
+}
+
+.checker-bottom {
+    bottom: 0;
+}
+
+.checker-container canvas {
+    width: 100%;
+    height: 100%;
+}
+
+/* Main content */
+.main-content {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 140px 24px;
+    z-index: 2;
+    gap: 24px;
+}
+
+/* Level badge */
+.level-badge {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    font-family: 'Space Mono', monospace;
+    font-size: 14px;
+    color: var(--text-dim);
+    letter-spacing: 0.1em;
+}
+
+.streak-text {
+    color: var(--text-color);
+}
+
+/* Word display */
+.word-container {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 16px;
+}
+
+.word {
+    font-family: 'DM Sans', sans-serif;
+    font-size: clamp(2.5rem, 10vw, 4rem);
+    font-weight: 900;
+    color: var(--text-color);
+    text-align: center;
+    line-height: 1.1;
+    max-width: 90vw;
+    word-wrap: break-word;
+    transition: transform 0.2s ease, opacity 0.2s ease;
+}
+
+.word.pulse {
+    animation: wordPulse 0.3s ease;
+}
+
+@keyframes wordPulse {
+    0%, 100% { transform: scale(1); }
+    50% { transform: scale(1.05); }
+}
+
+.listen-btn {
+    background: transparent;
+    border: 2px solid var(--accent-color);
+    border-radius: 50%;
+    width: 48px;
+    height: 48px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--accent-color);
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.listen-btn:hover, .listen-btn:active {
+    background: var(--accent-color);
+    color: var(--bg-color);
+    transform: scale(1.1);
+}
+
+/* Progress ring and record button */
+.progress-container {
+    position: relative;
+    width: 200px;
+    height: 200px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.progress-ring {
+    position: absolute;
+    width: 100%;
+    height: 100%;
+    transform: rotate(-90deg);
+}
+
+.progress-ring-bg {
+    fill: none;
+    stroke: var(--accent-dim);
+    stroke-width: 12;
+}
+
+.progress-ring-fill {
+    fill: none;
+    stroke: var(--accent-color);
+    stroke-width: 12;
+    stroke-linecap: round;
+    stroke-dasharray: 534;
+    stroke-dashoffset: 534;
+    transition: stroke-dashoffset 0.5s ease;
+}
+
+.record-btn {
+    position: relative;
+    width: 120px;
+    height: 120px;
+    border-radius: 50%;
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--accent-color);
+    transition: transform 0.2s ease;
+}
+
+.record-btn:hover {
+    transform: scale(1.05);
+}
+
+.record-btn:active {
+    transform: scale(0.95);
+}
+
+.mic-icon {
+    position: relative;
+    z-index: 2;
+    transition: transform 0.2s ease;
+}
+
+.recording-pulse {
+    position: absolute;
+    width: 100%;
+    height: 100%;
+    border-radius: 50%;
+    background: var(--accent-color);
+    opacity: 0;
+    transform: scale(0.8);
+    transition: all 0.3s ease;
+}
+
+.record-btn.recording .recording-pulse {
+    opacity: 0.2;
+    animation: pulse 1.5s ease-in-out infinite;
+}
+
+.record-btn.recording .mic-icon {
+    color: var(--bg-color);
+    z-index: 3;
+}
+
+.record-btn.recording .recording-pulse {
+    opacity: 1;
+    transform: scale(1);
+}
+
+@keyframes pulse {
+    0%, 100% { transform: scale(1); opacity: 1; }
+    50% { transform: scale(1.1); opacity: 0.7; }
+}
+
+/* Feedback */
+.feedback-container {
+    text-align: center;
+    min-height: 80px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+}
+
+.feedback {
+    font-family: 'Space Mono', monospace;
+    font-size: 24px;
+    font-weight: 700;
+    color: var(--text-color);
+    letter-spacing: 0.15em;
+    transition: all 0.3s ease;
+}
+
+.feedback.success {
+    animation: feedbackPop 0.5s ease;
+}
+
+.feedback.error {
+    animation: feedbackShake 0.5s ease;
+}
+
+@keyframes feedbackPop {
+    0%, 100% { transform: scale(1); }
+    50% { transform: scale(1.2); }
+}
+
+@keyframes feedbackShake {
+    0%, 100% { transform: translateX(0); }
+    25% { transform: translateX(-10px); }
+    75% { transform: translateX(10px); }
+}
+
+.transcript {
+    font-family: 'DM Sans', sans-serif;
+    font-size: 14px;
+    color: var(--text-dim);
+    font-style: italic;
+    max-width: 80%;
+}
+
+/* Score display */
+.score-display {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    opacity: 0;
+    transform: translateY(10px);
+    transition: all 0.3s ease;
+}
+
+.score-display.visible {
+    opacity: 1;
+    transform: translateY(0);
+}
+
+.score-label {
+    font-family: 'Space Mono', monospace;
+    font-size: 12px;
+    color: var(--text-dim);
+    letter-spacing: 0.2em;
+}
+
+.score-value {
+    font-family: 'Space Mono', monospace;
+    font-size: 48px;
+    font-weight: 700;
+    color: var(--text-color);
+}
+
+/* Next button */
+.next-btn {
+    font-family: 'Space Mono', monospace;
+    font-size: 16px;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    padding: 16px 48px;
+    background: var(--accent-color);
+    color: var(--bg-color);
+    border: none;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.next-btn:hover {
+    transform: scale(1.05);
+}
+
+.next-btn:active {
+    transform: scale(0.95);
+}
+
+/* Particles container */
+.particles-container {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    pointer-events: none;
+    z-index: 100;
+}
+
+.particle {
+    position: absolute;
+    width: 20px;
+    height: 20px;
+    background: var(--accent-color);
+    pointer-events: none;
+}
+
+/* Settings */
+.settings-toggle {
+    position: fixed;
+    top: 140px;
+    right: 16px;
+    width: 44px;
+    height: 44px;
+    background: transparent;
+    border: 2px solid var(--accent-dim);
+    border-radius: 50%;
+    color: var(--text-dim);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 10;
+    transition: all 0.2s ease;
+}
+
+.settings-toggle:hover {
+    border-color: var(--accent-color);
+    color: var(--accent-color);
+}
+
+.settings-panel {
+    position: fixed;
+    top: 0;
+    right: -320px;
+    width: 300px;
+    height: 100%;
+    background: var(--bg-color);
+    border-left: 3px solid var(--accent-color);
+    padding: 100px 24px 24px;
+    z-index: 50;
+    transition: right 0.3s ease;
+    display: flex;
+    flex-direction: column;
+    gap: 24px;
+}
+
+.settings-panel.open {
+    right: 0;
+}
+
+.settings-panel h2 {
+    font-family: 'Space Mono', monospace;
+    font-size: 18px;
+    color: var(--text-color);
+    letter-spacing: 0.2em;
+}
+
+.setting-item {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.setting-item label {
+    font-family: 'Space Mono', monospace;
+    font-size: 12px;
+    color: var(--text-dim);
+    letter-spacing: 0.1em;
+}
+
+.setting-item input,
+.setting-item select {
+    font-family: 'DM Sans', sans-serif;
+    font-size: 14px;
+    padding: 12px;
+    background: transparent;
+    border: 2px solid var(--accent-dim);
+    color: var(--text-color);
+    outline: none;
+    transition: border-color 0.2s ease;
+}
+
+.setting-item input:focus,
+.setting-item select:focus {
+    border-color: var(--accent-color);
+}
+
+.setting-item select option {
+    background: var(--bg-color);
+    color: var(--text-color);
+}
+
+.save-settings-btn {
+    font-family: 'Space Mono', monospace;
+    font-size: 14px;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    padding: 12px 24px;
+    background: var(--accent-color);
+    color: var(--bg-color);
+    border: none;
+    cursor: pointer;
+    margin-top: auto;
+    transition: transform 0.2s ease;
+}
+
+.save-settings-btn:hover {
+    transform: scale(1.02);
+}
+
+/* Perfect score celebration */
+@keyframes celebrate {
+    0% { filter: brightness(1); }
+    50% { filter: brightness(1.3); }
+    100% { filter: brightness(1); }
+}
+
+.celebrating {
+    animation: celebrate 0.5s ease;
+}
+
+/* Screen flash for perfect score */
+.flash-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: var(--accent-color);
+    opacity: 0;
+    pointer-events: none;
+    z-index: 99;
+}
+
+.flash-overlay.active {
+    animation: flash 0.3s ease-out;
+}
+
+@keyframes flash {
+    0% { opacity: 0.8; }
+    100% { opacity: 0; }
+}
+
+/* Mobile optimizations */
+@media (max-width: 480px) {
+    .main-content {
+        padding: 120px 16px;
+        gap: 20px;
+    }
+    
+    .progress-container {
+        width: 160px;
+        height: 160px;
+    }
+    
+    .record-btn {
+        width: 100px;
+        height: 100px;
+    }
+    
+    .feedback {
+        font-size: 20px;
+    }
+    
+    .score-value {
+        font-size: 36px;
+    }
+}
+
+/* Safe area for notched phones */
+@supports (padding-top: env(safe-area-inset-top)) {
+    .checker-top {
+        padding-top: env(safe-area-inset-top);
+    }
+    
+    .checker-bottom {
+        padding-bottom: env(safe-area-inset-bottom);
+    }
+    
+    .settings-toggle {
+        top: calc(140px + env(safe-area-inset-top));
+    }
+}
+
+/* Loading state */
+.loading .word {
+    opacity: 0.5;
+}
+
+.loading .record-btn {
+    pointer-events: none;
+    opacity: 0.5;
+}
+
