@@ -2,6 +2,7 @@
 // Tracks daily scores and adjusts difficulty dynamically
 
 import { PronunciationItem, ALL_CONTENT } from '@/data/words';
+import { generateDynamicContent } from './content-generator';
 
 // Historical record of daily performance
 export interface DailyScore {
@@ -239,7 +240,7 @@ export function updateSkillProfile(
   savePerformanceHistory(history);
 }
 
-// Generate adaptive content based on skill profile and adaptive level
+// Generate adaptive content based on skill profile and adaptive level (sync fallback)
 export function generateAdaptiveContent(count: number = 10): PronunciationItem[] {
   const history = getPerformanceHistory();
   const level = history.adaptiveLevel;
@@ -274,6 +275,36 @@ export function generateAdaptiveContent(count: number = 10): PronunciationItem[]
   
   // Shuffle the result
   return result.sort(() => Math.random() - 0.5);
+}
+
+// Generate adaptive content using AI (async, with static fallback)
+export async function generateAdaptiveContentAsync(count: number = 10): Promise<PronunciationItem[]> {
+  const history = getPerformanceHistory();
+  const level = history.adaptiveLevel;
+  const profile = history.skillProfile;
+  
+  // Get weakest skills to prioritize
+  const weakestSkills = getWeakestSkills(profile, 3);
+  const primaryLevel = Math.round(level);
+  
+  try {
+    // Try to get AI-generated content
+    const items = await generateDynamicContent(primaryLevel, weakestSkills, count);
+    if (items && items.length >= count) {
+      return items;
+    }
+  } catch {
+    // AI generation failed, fall through to static
+  }
+  
+  // Fall back to static content
+  return generateAdaptiveContent(count);
+}
+
+// Export weak skills getter for external use
+export function getWeakSkills(n: number = 3): (keyof SkillProfile)[] {
+  const history = getPerformanceHistory();
+  return getWeakestSkills(history.skillProfile, n);
 }
 
 // Get the N weakest skills

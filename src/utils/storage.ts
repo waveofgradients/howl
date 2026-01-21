@@ -5,6 +5,7 @@ import {
   recordDailyPerformance, 
   updateSkillProfile, 
   generateAdaptiveContent,
+  generateAdaptiveContentAsync,
   getAdaptiveLevel,
   resetPerformanceHistory
 } from './adaptive-difficulty';
@@ -73,7 +74,7 @@ function getTodayString(): string {
   return new Date().toDateString();
 }
 
-// Initialize or get daily challenge using adaptive content
+// Initialize or get daily challenge using adaptive content (sync - uses static fallback)
 export function getDailyChallenge(): DailyChallenge {
   const progress = getProgress();
   const today = getTodayString();
@@ -99,8 +100,69 @@ export function getDailyChallenge(): DailyChallenge {
     );
   }
   
-  // Generate adaptive content based on performance history
+  // Generate adaptive content based on performance history (sync/static)
   const items = generateAdaptiveContent(DAILY_CHALLENGE_SIZE);
+  
+  const newChallenge: DailyChallenge = {
+    date: today,
+    items,
+    completed: 0,
+    currentIndex: 0,
+    attempts: 0,
+    scores: [],
+    perfectCount: 0,
+  };
+  
+  // Update streak
+  if (progress.lastPlayedDate) {
+    const lastDate = new Date(progress.lastPlayedDate);
+    const todayDate = new Date(today);
+    const dayDiff = Math.floor((todayDate.getTime() - lastDate.getTime()) / (1000 * 60 * 60 * 24));
+    
+    if (dayDiff > 1) {
+      progress.streak = 0; // Streak broken
+    }
+  }
+  
+  // Update level from adaptive system
+  progress.currentLevel = Math.round(getAdaptiveLevel());
+  
+  progress.dailyChallenge = newChallenge;
+  progress.lastPlayedDate = today;
+  progress.currentDay++;
+  saveProgress(progress);
+  
+  return newChallenge;
+}
+
+// Initialize daily challenge with AI-generated content (async)
+export async function getDailyChallengeAsync(): Promise<DailyChallenge> {
+  const progress = getProgress();
+  const today = getTodayString();
+  
+  // If we have a valid challenge for today, return it
+  if (progress.dailyChallenge && progress.dailyChallenge.date === today) {
+    return progress.dailyChallenge;
+  }
+  
+  // Record yesterday's performance if there was a challenge
+  if (progress.dailyChallenge) {
+    const lastChallenge = progress.dailyChallenge;
+    const avgScore = lastChallenge.scores.length > 0
+      ? lastChallenge.scores.reduce((a, b) => a + b, 0) / lastChallenge.scores.length
+      : 0;
+    
+    recordDailyPerformance(
+      lastChallenge.completed,
+      lastChallenge.items.length,
+      lastChallenge.perfectCount,
+      avgScore,
+      progress.currentLevel
+    );
+  }
+  
+  // Generate adaptive content using AI (async, with static fallback)
+  const items = await generateAdaptiveContentAsync(DAILY_CHALLENGE_SIZE);
   
   const newChallenge: DailyChallenge = {
     date: today,

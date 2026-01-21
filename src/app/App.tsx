@@ -4,7 +4,7 @@ import { ParticleExplosion } from './components/ParticleExplosion';
 import { AudioBars } from './components/AudioBars';
 import { 
   getProgress, 
-  getDailyChallenge, 
+  getDailyChallengeAsync, 
   recordAttempt, 
   getDailyProgress,
   getAllTimeProgress,
@@ -91,25 +91,28 @@ export default function App() {
   const [challengeComplete, setChallengeComplete] = useState(false);
   const [isTransitioning, setIsTransitioning] = useState(false);
   const [displayedProgress, setDisplayedProgress] = useState(0);
-  const [isLoadingNext, setIsLoadingNext] = useState(false);
   
   const advanceTimeoutRef = useRef<ReturnType<typeof setTimeout>>();
   
   // Initialize daily challenge and load first item
   useEffect(() => {
-    // Get adaptive daily challenge - automatically adjusts difficulty based on history
-    const challenge = getDailyChallenge();
+    const initChallenge = async () => {
+      // Get adaptive daily challenge with AI-generated content
+      const challenge = await getDailyChallengeAsync();
+      
+      if (challenge.currentIndex >= challenge.items.length) {
+        setChallengeComplete(true);
+        return;
+      }
+      
+      const item = challenge.items[challenge.currentIndex];
+      setCurrentText(item.text);
+      setProgress(getProgress());
+      setDailyProgress(getDailyProgress());
+      prefetchAudio(item.text).catch(() => {});
+    };
     
-    if (challenge.currentIndex >= challenge.items.length) {
-      setChallengeComplete(true);
-      return;
-    }
-    
-    const item = challenge.items[challenge.currentIndex];
-    setCurrentText(item.text);
-    setProgress(getProgress());
-    setDailyProgress(getDailyProgress());
-    prefetchAudio(item.text).catch(() => {});
+    initChallenge();
   }, []);
   
   // Load next item
@@ -207,22 +210,6 @@ export default function App() {
       const isPerfectScore = rating === 'perfect';
       const isGoodOrPerfect = rating === 'perfect' || rating === 'good';
       
-      if (isPerfectScore) {
-        playPerfect();
-        setShowExplosion(true);
-        setCheckersExploding(true);
-        setTimeout(() => {
-          setShowExplosion(false);
-          setCheckersExploding(false);
-        }, 1000);
-      } else if (isGoodOrPerfect) {
-        playSuccess();
-      } else if (rating === 'ok') {
-        playPartial();
-      } else {
-        playError();
-      }
-      
       const { shouldAdvance, challengeComplete: complete, progress: newProgress } = recordAttempt(
         isGoodOrPerfect,
         isPerfectScore,
@@ -232,22 +219,58 @@ export default function App() {
       setProgress(newProgress);
       setDailyProgress(getDailyProgress());
       
-      if (complete) {
-        // Start transition animation
-        advanceTimeoutRef.current = setTimeout(() => {
+      if (isPerfectScore) {
+        playPerfect();
+        setShowExplosion(true);
+        setCheckersExploding(true);
+        
+        // Load next word IMMEDIATELY when celebration starts (not after delay)
+        if (complete) {
           setIsTransitioning(true);
           playLevelUp();
-          // After transition animation, mark as complete
-          setTimeout(() => {
+          advanceTimeoutRef.current = setTimeout(() => {
+            setShowExplosion(false);
+            setCheckersExploding(false);
             setChallengeComplete(true);
-          }, 2000);
-        }, 1500);
-      } else if (shouldAdvance) {
-        setIsLoadingNext(true);
-        advanceTimeoutRef.current = setTimeout(() => {
+          }, 1500);
+        } else if (shouldAdvance) {
+          // Change word right away, celebration plays over it
           loadNextItem();
-          setIsLoadingNext(false);
-        }, isPerfectScore ? 1500 : 1000);
+          advanceTimeoutRef.current = setTimeout(() => {
+            setShowExplosion(false);
+            setCheckersExploding(false);
+          }, 1000);
+        }
+      } else if (isGoodOrPerfect) {
+        playSuccess();
+        // Good score - advance after brief feedback display
+        if (complete) {
+          advanceTimeoutRef.current = setTimeout(() => {
+            setIsTransitioning(true);
+            playLevelUp();
+            setTimeout(() => setChallengeComplete(true), 1500);
+          }, 800);
+        } else if (shouldAdvance) {
+          advanceTimeoutRef.current = setTimeout(() => {
+            loadNextItem();
+          }, 600);
+        }
+      } else if (rating === 'ok') {
+        playPartial();
+        // OK score - might need to retry
+        if (shouldAdvance) {
+          advanceTimeoutRef.current = setTimeout(() => {
+            loadNextItem();
+          }, 800);
+        }
+      } else {
+        playError();
+        // Failed - might advance after 3 attempts
+        if (shouldAdvance) {
+          advanceTimeoutRef.current = setTimeout(() => {
+            loadNextItem();
+          }, 800);
+        }
       }
       
     } catch (err) {
@@ -559,15 +582,15 @@ export default function App() {
             style={{ 
               width: responsiveStyles.buttonWidth,
               gap: 'clamp(16px, 4vw, 32px)',
-              opacity: isTransitioning ? 0 : isLoadingNext ? 0.6 : 1,
+              opacity: isTransitioning ? 0 : 1,
               transform: isTransitioning ? 'translateY(20px)' : 'translateY(0)',
-              pointerEvents: (isTransitioning || isLoadingNext) ? 'none' : 'auto',
+              pointerEvents: isTransitioning ? 'none' : 'auto',
             }}
           >
             {/* Mic button */}
             <button
               onClick={handleRecord}
-              disabled={isLoadingNext}
+              disabled={isRecording}
               className={`
                 flex-1 rounded-[20px] border-2 
                 flex items-center justify-center
@@ -595,7 +618,7 @@ export default function App() {
             {/* Play button */}
             <button
               onClick={handleListen}
-              disabled={isPlaying || isLoadingNext}
+              disabled={isPlaying}
               className={`
                 flex-1 rounded-[20px] border-2 
                 flex items-center justify-center
