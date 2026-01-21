@@ -18,6 +18,10 @@ export interface DailyChallenge {
   attempts: number; // Attempts on current item
   scores: number[]; // Score for each attempt (for calculating average)
   perfectCount: number; // Number of perfect scores
+  dailyScore: number; // 0-100, can go up AND down
+  comboStreak: number; // Consecutive perfects
+  isRecoveryMode: boolean; // True when retrying after NOOOO
+  pendingLoss: number; // Points to lose if recovery fails
 }
 
 export interface UserProgress {
@@ -111,6 +115,10 @@ export function getDailyChallenge(): DailyChallenge {
     attempts: 0,
     scores: [],
     perfectCount: 0,
+    dailyScore: 0,
+    comboStreak: 0,
+    isRecoveryMode: false,
+    pendingLoss: 0,
   };
   
   // Update streak
@@ -172,6 +180,10 @@ export async function getDailyChallengeAsync(): Promise<DailyChallenge> {
     attempts: 0,
     scores: [],
     perfectCount: 0,
+    dailyScore: 0,
+    comboStreak: 0,
+    isRecoveryMode: false,
+    pendingLoss: 0,
   };
   
   // Update streak
@@ -196,7 +208,11 @@ export async function getDailyChallengeAsync(): Promise<DailyChallenge> {
   return newChallenge;
 }
 
-// Record attempt result with score
+// Rating type for game logic
+export type GameRating = 'perfect' | 'good' | 'ok' | 'bad';
+
+// Record attempt with game-like scoring
+// Perfect: +15% (with combo multiplier), Good: +8%, OK: -5%, Bad: -10% (must retry)
 export function recordAttempt(
   isGoodOrPerfect: boolean, 
   isPerfect: boolean,
@@ -205,13 +221,21 @@ export function recordAttempt(
   shouldAdvance: boolean; 
   challengeComplete: boolean;
   progress: UserProgress;
+  scoreChange: number; // How much the score changed (for UI feedback)
+  isRecovery: boolean; // True if this was a recovery attempt
 } {
   const progress = getProgress();
   const challenge = progress.dailyChallenge;
   
   if (!challenge) {
-    return { shouldAdvance: false, challengeComplete: false, progress };
+    return { shouldAdvance: false, challengeComplete: false, progress, scoreChange: 0, isRecovery: false };
   }
+  
+  // Ensure new fields exist (migration)
+  if (challenge.dailyScore === undefined) challenge.dailyScore = 0;
+  if (challenge.comboStreak === undefined) challenge.comboStreak = 0;
+  if (challenge.isRecoveryMode === undefined) challenge.isRecoveryMode = false;
+  if (challenge.pendingLoss === undefined) challenge.pendingLoss = 0;
   
   challenge.attempts++;
   challenge.scores.push(score);
@@ -230,23 +254,86 @@ export function recordAttempt(
   }
   
   let shouldAdvance = false;
+  let scoreChange = 0;
+  const wasRecoveryMode = challenge.isRecoveryMode;
   
-  if (isPerfect) {
-    // Perfect - advance immediately
-    shouldAdvance = true;
-    challenge.completed++;
-    challenge.perfectCount++;
-    progress.totalPerfect++;
-    progress.totalCompleted++;
-    progress.streak++;
-  } else if (isGoodOrPerfect) {
-    // Good - advance
-    shouldAdvance = true;
-    challenge.completed++;
-    progress.totalCompleted++;
-  } else if (challenge.attempts >= 3) {
-    // Failed 3 times - advance without credit
-    shouldAdvance = true;
+  // Determine rating: perfect (90+), good (65-89), ok (40-64), bad (<40)
+  const rating: GameRating = isPerfect ? 'perfect' 
+    : isGoodOrPerfect ? 'good' 
+    : score >= 40 ? 'ok' 
+    : 'bad';
+  
+  if (wasRecoveryMode) {
+    // RECOVERY MODE: Trying to recover from a NOOOO
+    if (rating === 'perfect' || rating === 'good') {
+      // Recovered! Don't lose points, but don't gain either
+      scoreChange = 0; // Just prevented the loss
+      challenge.pendingLoss = 0;
+      challenge.isRecoveryMode = false;
+      shouldAdvance = true;
+      challenge.comboStreak = 0; // Reset combo
+      challenge.completed++;
+      progress.totalCompleted++;
+      if (rating === 'perfect') {
+        challenge.perfectCount++;
+        progress.totalPerfect++;
+      }
+    } else if (rating === 'ok') {
+      // OK in recovery - still lose half the pending points
+      scoreChange = -Math.round(challenge.pendingLoss / 2);
+      challenge.dailyScore = Math.max(0, challenge.dailyScore + scoreChange);
+      challenge.pendingLoss = 0;
+      challenge.isRecoveryMode = false;
+      shouldAdvance = true;
+      challenge.comboStreak = 0;
+    } else {
+      // Still bad - keep trying (up to 3 attempts total)
+      if (challenge.attempts >= 3) {
+        // Give up - take full loss and move on
+        scoreChange = -challenge.pendingLoss;
+        challenge.dailyScore = Math.max(0, challenge.dailyScore + scoreChange);
+        challenge.pendingLoss = 0;
+        challenge.isRecoveryMode = false;
+        shouldAdvance = true;
+        challenge.comboStreak = 0;
+      }
+    }
+  } else {
+    // NORMAL MODE
+    if (rating === 'perfect') {
+      // PERFECT: +15% base, with combo multiplier
+      challenge.comboStreak++;
+      const comboMultiplier = Math.min(challenge.comboStreak, 3); // Max 3x
+      const baseGain = 15;
+      scoreChange = Math.round(baseGain * comboMultiplier);
+      challenge.dailyScore = Math.min(100, challenge.dailyScore + scoreChange);
+      shouldAdvance = true;
+      challenge.completed++;
+      challenge.perfectCount++;
+      progress.totalPerfect++;
+      progress.totalCompleted++;
+      progress.streak++;
+    } else if (rating === 'good') {
+      // GOOD: +8%, reset combo
+      scoreChange = 8;
+      challenge.dailyScore = Math.min(100, challenge.dailyScore + scoreChange);
+      shouldAdvance = true;
+      challenge.comboStreak = 0;
+      challenge.completed++;
+      progress.totalCompleted++;
+    } else if (rating === 'ok') {
+      // OK: -5%, but still advance
+      scoreChange = -5;
+      challenge.dailyScore = Math.max(0, challenge.dailyScore + scoreChange);
+      shouldAdvance = true;
+      challenge.comboStreak = 0;
+    } else {
+      // BAD (NOOOO): Enter recovery mode, pending -10%
+      challenge.pendingLoss = 10;
+      challenge.isRecoveryMode = true;
+      challenge.comboStreak = 0;
+      // Don't advance yet - must retry
+    }
   }
   
   if (shouldAdvance) {
@@ -277,7 +364,7 @@ export function recordAttempt(
   progress.dailyChallenge = challenge;
   saveProgress(progress);
   
-  return { shouldAdvance, challengeComplete, progress };
+  return { shouldAdvance, challengeComplete, progress, scoreChange, isRecovery: wasRecoveryMode };
 }
 
 // Get current item from daily challenge
@@ -298,14 +385,27 @@ export function getCurrentChallengeText(): string | null {
   return item ? item.text : null;
 }
 
-// Get daily progress (0-1)
+// Get daily progress (0-1) - now uses dynamic dailyScore
 export function getDailyProgress(): number {
   const progress = getProgress();
   const challenge = progress.dailyChallenge;
   
   if (!challenge) return 0;
   
-  return challenge.completed / challenge.items.length;
+  // Use the new dailyScore (0-100) converted to 0-1
+  return (challenge.dailyScore ?? 0) / 100;
+}
+
+// Get combo streak
+export function getComboStreak(): number {
+  const progress = getProgress();
+  return progress.dailyChallenge?.comboStreak ?? 0;
+}
+
+// Check if in recovery mode
+export function isInRecoveryMode(): boolean {
+  const progress = getProgress();
+  return progress.dailyChallenge?.isRecoveryMode ?? false;
 }
 
 // Get all-time progress as percentage (0-100)

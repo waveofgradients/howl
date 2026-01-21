@@ -8,6 +8,8 @@ import {
   recordAttempt, 
   getDailyProgress,
   getAllTimeProgress,
+  getComboStreak,
+  isInRecoveryMode,
   type UserProgress 
 } from '@/utils/storage';
 import { playTextToSpeech, prefetchAudio } from '@/utils/elevenlabs';
@@ -91,6 +93,10 @@ export default function App() {
   const [challengeComplete, setChallengeComplete] = useState(false);
   const [isTransitioning, setIsTransitioning] = useState(false);
   const [displayedProgress, setDisplayedProgress] = useState(0);
+  const [scoreChange, setScoreChange] = useState<number | null>(null);
+  const [comboStreak, setComboStreak] = useState(0);
+  const [isRecovery, setIsRecovery] = useState(false);
+  const [shake, setShake] = useState(false);
   
   const advanceTimeoutRef = useRef<ReturnType<typeof setTimeout>>();
   
@@ -188,14 +194,29 @@ export default function App() {
       const isPerfectScore = rating === 'perfect';
       const isGoodOrPerfect = rating === 'perfect' || rating === 'good';
       
-      const { shouldAdvance, challengeComplete: complete, progress: newProgress } = recordAttempt(
-        isGoodOrPerfect,
-        isPerfectScore,
-        score
-      );
+      const { 
+        shouldAdvance, 
+        challengeComplete: complete, 
+        progress: newProgress,
+        scoreChange: change,
+      } = recordAttempt(isGoodOrPerfect, isPerfectScore, score);
       
       setProgress(newProgress);
       setDailyProgress(getDailyProgress());
+      setComboStreak(getComboStreak());
+      setIsRecovery(isInRecoveryMode());
+      
+      // Show score change indicator
+      if (change !== 0) {
+        setScoreChange(change);
+        setTimeout(() => setScoreChange(null), 1500);
+      }
+      
+      // Shake on point loss
+      if (change < 0) {
+        setShake(true);
+        setTimeout(() => setShake(false), 500);
+      }
       
       if (isPerfectScore) {
         playPerfect();
@@ -230,14 +251,19 @@ export default function App() {
         }
       } else if (rating === 'ok') {
         playPartial();
+        // OK still advances but loses points
         if (shouldAdvance) {
           advanceTimeoutRef.current = setTimeout(() => loadNextItem(), 500);
         }
       } else {
+        // NOOOO - must retry (recovery mode)
         playError();
+        // Don't advance - show retry indicator
         if (shouldAdvance) {
+          // Only advances after 3 failed attempts
           advanceTimeoutRef.current = setTimeout(() => loadNextItem(), 500);
         }
+        // If not advancing, user must retry
       }
       
     } catch (err: unknown) {
@@ -495,9 +521,9 @@ export default function App() {
             }
           </h1>
           
-          {/* Progress ring - grows during transition */}
+          {/* Progress ring - grows during transition, shakes on point loss */}
           <div 
-            className="relative transition-all duration-300 ease-out"
+            className={`relative transition-all duration-300 ease-out ${shake ? 'animate-shake' : ''}`}
             style={{ 
               width: isTransitioning ? responsiveStyles.circleSizeLarge : responsiveStyles.circleSize,
               height: isTransitioning ? responsiveStyles.circleSizeLarge : responsiveStyles.circleSize,
@@ -538,8 +564,29 @@ export default function App() {
               />
             </svg>
             
-            {/* Center content - feedback or percentage */}
-            <div className="absolute inset-0 flex items-center justify-center">
+            {/* Center content - feedback, combo, or percentage */}
+            <div className="absolute inset-0 flex flex-col items-center justify-center gap-1">
+              {/* Combo indicator */}
+              {comboStreak >= 2 && !isTransitioning && (
+                <span 
+                  className="font-bricolage font-bold text-xs animate-pulse"
+                  style={{ color: theme.accent, opacity: 0.8 }}
+                >
+                  {comboStreak}x COMBO
+                </span>
+              )}
+              
+              {/* Recovery mode indicator */}
+              {isRecovery && !isTransitioning && (
+                <span 
+                  className="font-bricolage font-bold text-xs"
+                  style={{ color: theme.accent, opacity: 0.8 }}
+                >
+                  RETRY!
+                </span>
+              )}
+              
+              {/* Main feedback text */}
               <span 
                 className="font-bricolage font-bold tracking-tight text-center transition-all duration-500"
                 style={{ 
@@ -549,6 +596,18 @@ export default function App() {
               >
                 {isTransitioning ? `${Math.round(displayedProgress)}%` : feedback}
               </span>
+              
+              {/* Score change indicator */}
+              {scoreChange !== null && !isTransitioning && (
+                <span 
+                  className="font-bricolage font-bold text-sm animate-bounce"
+                  style={{ 
+                    color: scoreChange > 0 ? theme.accent : '#ff6b6b',
+                  }}
+                >
+                  {scoreChange > 0 ? `+${scoreChange}` : scoreChange}
+                </span>
+              )}
             </div>
           </div>
           
