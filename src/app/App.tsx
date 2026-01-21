@@ -91,8 +91,10 @@ export default function App() {
   const [challengeComplete, setChallengeComplete] = useState(false);
   const [isTransitioning, setIsTransitioning] = useState(false);
   const [displayedProgress, setDisplayedProgress] = useState(0);
+  const [autoListenMode, setAutoListenMode] = useState(false);
   
   const advanceTimeoutRef = useRef<ReturnType<typeof setTimeout>>();
+  const autoListenRef = useRef(false);
   
   // Initialize daily challenge and load first item
   useEffect(() => {
@@ -155,31 +157,11 @@ export default function App() {
     }
   }, [currentText, isPlaying, handleFirstInteraction]);
   
-  // Handle recording
-  const handleRecord = useCallback(async () => {
-    if (!currentText || isRecording) return;
-    
-    await handleFirstInteraction();
-    
-    if (!isSpeechRecognitionAvailable()) {
-      setError(getSpeechRecognitionError());
-      return;
-    }
-    
-    if (advanceTimeoutRef.current) {
-      clearTimeout(advanceTimeoutRef.current);
-    }
-    
-    setIsRecording(true);
-    setFeedback('');
-    playStartRecord();
-    
+  // Process a single recognition attempt
+  const processRecognition = useCallback(async (): Promise<boolean> => {
     try {
       const result = await startListening();
-      playStopRecord();
-      setIsRecording(false);
       
-      // Use confidence from speech recognition for more accurate scoring
       const score = scorePronunciation(currentText, result.transcript, result.confidence);
       const rating = getRating(score);
       const feedbackText = getFeedback(score);
@@ -203,73 +185,127 @@ export default function App() {
         setShowExplosion(true);
         setCheckersExploding(true);
         
-        // Load next word IMMEDIATELY when celebration starts (not after delay)
         if (complete) {
+          setAutoListenMode(false);
+          autoListenRef.current = false;
           setIsTransitioning(true);
           playLevelUp();
-          advanceTimeoutRef.current = setTimeout(() => {
+          setTimeout(() => {
             setShowExplosion(false);
             setCheckersExploding(false);
             setChallengeComplete(true);
-          }, 1500);
+          }, 1000);
+          return false; // Stop auto-listen
         } else if (shouldAdvance) {
-          // Change word right away, celebration plays over it
           loadNextItem();
-          advanceTimeoutRef.current = setTimeout(() => {
+          setTimeout(() => {
             setShowExplosion(false);
             setCheckersExploding(false);
-          }, 1000);
+          }, 600);
         }
       } else if (isGoodOrPerfect) {
         playSuccess();
-        // Good score - advance after brief feedback display
         if (complete) {
-          advanceTimeoutRef.current = setTimeout(() => {
+          setAutoListenMode(false);
+          autoListenRef.current = false;
+          setTimeout(() => {
             setIsTransitioning(true);
             playLevelUp();
-            setTimeout(() => setChallengeComplete(true), 1500);
-          }, 800);
+            setTimeout(() => setChallengeComplete(true), 1000);
+          }, 400);
+          return false;
         } else if (shouldAdvance) {
-          advanceTimeoutRef.current = setTimeout(() => {
-            loadNextItem();
-          }, 600);
+          setTimeout(() => loadNextItem(), 300);
         }
       } else if (rating === 'ok') {
         playPartial();
-        // OK score - might need to retry
         if (shouldAdvance) {
-          advanceTimeoutRef.current = setTimeout(() => {
-            loadNextItem();
-          }, 800);
+          setTimeout(() => loadNextItem(), 400);
         }
       } else {
         playError();
-        // Failed - might advance after 3 attempts
         if (shouldAdvance) {
-          advanceTimeoutRef.current = setTimeout(() => {
-            loadNextItem();
-          }, 800);
+          setTimeout(() => loadNextItem(), 400);
         }
       }
       
-    } catch (err: unknown) {
-      setIsRecording(false);
-      playStopRecord();
+      return true; // Continue auto-listen
       
+    } catch (err: unknown) {
       const error = err as Error & { name?: string };
       
-      // Handle specific error types
-      if (error.name === 'NotAllowedError' || error.message?.includes('not-allowed')) {
-        setError('Mic blocked. Go to Settings → Safari → Microphone → Allow');
-      } else if (error.message?.includes('no-speech')) {
-        setError('No speech detected. Tap mic and speak clearly.');
-      } else if (error.message?.includes('network')) {
-        setError('Network error. Check your connection.');
-      } else {
-        setError(error.message || 'Could not recognize speech. Try again.');
+      // Don't show error for no-speech in auto mode, just keep listening
+      if (error.message === 'no-speech' && autoListenRef.current) {
+        return true; // Keep listening
       }
+      
+      if (error.name === 'NotAllowedError' || error.message?.includes('not-allowed')) {
+        setError('Mic blocked. Allow mic access in settings.');
+        return false;
+      } else if (error.message === 'no-speech') {
+        // Show error only if not in auto mode
+        setError('Speak into the mic');
+      } else if (error.message?.includes('network')) {
+        setError('Network error');
+        return false;
+      }
+      
+      return true; // Keep listening on minor errors
     }
-  }, [currentText, isRecording, handleFirstInteraction, loadNextItem]);
+  }, [currentText, loadNextItem]);
+  
+  // Auto-listen loop
+  const runAutoListen = useCallback(async () => {
+    while (autoListenRef.current && !challengeComplete) {
+      setIsRecording(true);
+      const shouldContinue = await processRecognition();
+      setIsRecording(false);
+      
+      if (!shouldContinue || !autoListenRef.current) {
+        break;
+      }
+      
+      // Brief pause between listens
+      await new Promise(r => setTimeout(r, 200));
+    }
+    
+    setIsRecording(false);
+    setAutoListenMode(false);
+    autoListenRef.current = false;
+  }, [processRecognition, challengeComplete]);
+  
+  // Handle mic button tap - toggle auto-listen mode
+  const handleRecord = useCallback(async () => {
+    if (!currentText) return;
+    
+    await handleFirstInteraction();
+    
+    if (!isSpeechRecognitionAvailable()) {
+      setError(getSpeechRecognitionError());
+      return;
+    }
+    
+    // If already in auto-listen mode, stop it (mute)
+    if (autoListenMode || autoListenRef.current) {
+      autoListenRef.current = false;
+      setAutoListenMode(false);
+      setIsRecording(false);
+      playStopRecord();
+      return;
+    }
+    
+    // Start auto-listen mode
+    if (advanceTimeoutRef.current) {
+      clearTimeout(advanceTimeoutRef.current);
+    }
+    
+    setFeedback('');
+    autoListenRef.current = true;
+    setAutoListenMode(true);
+    playStartRecord();
+    
+    runAutoListen();
+  }, [currentText, autoListenMode, handleFirstInteraction, runAutoListen]);
   
   // Animate progress counter when transitioning or complete
   useEffect(() => {
@@ -565,7 +601,7 @@ export default function App() {
             </div>
           </div>
           
-          {/* Buttons: Mic and Play - fade out during transition, dim when loading next */}
+          {/* Buttons: Mic and Play - fade out during transition */}
           <div 
             className="flex items-center transition-all duration-500"
             style={{ 
@@ -576,26 +612,27 @@ export default function App() {
               pointerEvents: isTransitioning ? 'none' : 'auto',
             }}
           >
-            {/* Mic button */}
+            {/* Mic button - tap to start auto-listen, tap again to mute */}
             <button
               onClick={handleRecord}
-              disabled={isRecording}
               className={`
                 flex-1 rounded-[20px] border-2 
                 flex items-center justify-center
                 transition-all duration-200
-                ${isRecording ? 'scale-[1.02]' : 'hover:scale-[1.02] active:scale-95'}
+                ${autoListenMode ? 'scale-[1.02]' : 'hover:scale-[1.02] active:scale-95'}
               `}
               style={{ 
                 height: responsiveStyles.buttonHeight,
                 borderColor: theme.accent,
-                backgroundColor: isRecording ? theme.accent : 'transparent',
+                backgroundColor: autoListenMode ? theme.accent : 'transparent',
               }}
-              aria-label={isRecording ? 'Recording...' : 'Tap to speak'}
+              aria-label={autoListenMode ? 'Tap to mute' : 'Tap to start listening'}
             >
-              {isRecording ? (
+              {autoListenMode ? (
+                // Show audio bars when in auto-listen mode
                 <AudioBars isActive={isRecording} color={theme.background} />
               ) : (
+                // Show mic icon when idle
                 <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke={theme.accent} strokeWidth="2">
                   <rect x="9" y="3" width="6" height="11" rx="3" />
                   <path d="M5 11a7 7 0 0 0 14 0" />

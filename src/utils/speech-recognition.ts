@@ -110,15 +110,15 @@ export function startListening(): Promise<RecognitionResult> {
       recognition.onend = null;
     };
 
-    // 10 second timeout
+    // 5 second timeout (faster response)
     timeoutId = setTimeout(() => {
       if (!resolved) {
         resolved = true;
         cleanup();
         recognition.abort();
-        reject(new Error('No speech detected. Tap mic and speak clearly.'));
+        reject(new Error('no-speech'));
       }
-    }, 10000);
+    }, 5000);
 
     recognition.onstart = () => {
       
